@@ -1,0 +1,88 @@
+#############################################################
+# Regras de PCC Mikrotik para balanceamento de links
+# Versão 1.0
+# Fabio Fraga Machado
+# E-mail: fraga.fabio@gmail.com
+# Florianopolis, Santa Catarina - Brasil
+#############################################################
+
+
+/ip firewall mangle
+add action=accept chain=prerouting comment="Bypass Routing" dst-address=172.16.20.0/24 in-interface=ether6-lan
+add action=accept chain=prerouting dst-address=10.10.20.0/24 in-interface=ether7-dmz
+add action=accept chain=prerouting dst-address-list=VPN
+add action=accept chain=prerouting protocol=gre
+add action=accept chain=prerouting protocol=icmp
+add action=accept chain=prerouting comment=DVR dst-port=37777 protocol=tcp
+add action=accept chain=prerouting protocol=tcp src-port=37777
+add action=accept chain=prerouting dst-port=5432 protocol=tcp
+add action=accept chain=prerouting protocol=tcp src-port=5432
+add action=mark-connection chain=prerouting disabled=yes new-connection-mark=marca_conn_modulo_web passthrough=yes src-address=\
+    172.16.20.20
+add action=mark-routing chain=prerouting connection-mark=marca_conn_modulo_web disabled=yes new-routing-mark=marca_saida_modulo_web \
+    passthrough=no
+add action=jump chain=prerouting comment="Chamada Balanceamento" in-interface=ether6-lan jump-target=balanceamento
+add action=jump chain=prerouting in-interface=ether7-dmz jump-target=balanceamento
+add action=mark-connection chain=balanceamento comment="Divisoes 8 marcacoes (Net 5 - Informac 2 - Vivo 1)" dst-address-type=!local \
+    new-connection-mark=marca_entrada_net passthrough=yes per-connection-classifier=both-addresses:8/0
+add action=mark-connection chain=balanceamento dst-address-type=!local new-connection-mark=marca_entrada_net passthrough=yes \
+    per-connection-classifier=both-addresses:8/1
+add action=mark-connection chain=balanceamento dst-address-type=!local new-connection-mark=marca_entrada_net passthrough=yes \
+    per-connection-classifier=both-addresses:8/2
+add action=mark-connection chain=balanceamento dst-address-type=!local new-connection-mark=marca_entrada_net passthrough=yes \
+    per-connection-classifier=both-addresses:8/3
+add action=mark-connection chain=balanceamento dst-address-type=!local new-connection-mark=marca_entrada_net passthrough=yes \
+    per-connection-classifier=both-addresses:8/4
+add action=mark-connection chain=balanceamento dst-address-type=!local new-connection-mark=marca_entrada_informac passthrough=yes \
+    per-connection-classifier=both-addresses:8/5
+add action=mark-connection chain=balanceamento dst-address-type=!local new-connection-mark=marca_entrada_informac passthrough=yes \
+    per-connection-classifier=both-addresses:8/6
+add action=mark-connection chain=balanceamento dst-address-type=!local new-connection-mark=marca_entrada_vivo passthrough=yes \
+    per-connection-classifier=both-addresses:8/7
+add action=mark-routing chain=prerouting connection-mark=marca_entrada_informac new-routing-mark=marca_saida_informac passthrough=no \
+    src-address-list=LANs
+add action=mark-routing chain=prerouting connection-mark=marca_entrada_vivo new-routing-mark=marca_saida_vivo passthrough=no \
+    src-address-list=LANs
+add action=mark-routing chain=prerouting connection-mark=marca_entrada_net new-routing-mark=marca_saida_net passthrough=no \
+    src-address-list=LANs
+add action=mark-connection chain=input comment="Marca conexoes vindas da internet" connection-mark=no-mark in-interface=ether1-net \
+    new-connection-mark=marca_entrada_net passthrough=yes
+add action=mark-connection chain=input connection-mark=no-mark in-interface=ether2-vivo new-connection-mark=marca_entrada_vivo \
+    passthrough=yes
+add action=mark-connection chain=input connection-mark=no-mark in-interface=PPPoE-informac new-connection-mark=\
+    marca_entrada_informac passthrough=yes
+add action=mark-connection chain=input connection-mark=no-mark in-interface=PPPoE-oi new-connection-mark=marca_entrada_oi \
+    passthrough=yes
+add action=mark-connection chain=input connection-mark=no-mark in-interface=ether4-ole new-connection-mark=marca_entrada_ole \
+    passthrough=yes
+add action=mark-routing chain=output comment="Marca conexoes indo para internet" connection-mark=marca_entrada_net new-routing-mark=\
+    marca_saida_net passthrough=no
+add action=mark-routing chain=output connection-mark=marca_entrada_oi new-routing-mark=marca_saida_oi passthrough=no
+add action=mark-routing chain=output connection-mark=marca_entrada_ole new-routing-mark=marca_saida_ole passthrough=no
+add action=mark-routing chain=output connection-mark=marca_entrada_vivo new-routing-mark=marca_saida_vivo passthrough=no
+add action=mark-routing chain=output connection-mark=marca_entrada_informac new-routing-mark=marca_saida_informac passthrough=no
+
+
+===========================================================
+
+/ip route
+add check-gateway=ping comment="Gateway Informac Marcado" distance=1 gateway=10.1.0.1 routing-mark=marca_saida_informac
+add distance=1 gateway=192.168.25.1 routing-mark=marca_saida_vivo
+add check-gateway=ping comment="Gateway Net" distance=1 gateway=189.34.32.1 routing-mark=marca_saida_net
+add distance=1 gateway=201.35.252.254 routing-mark=marca_saida_oi
+add distance=1 gateway=200.188.224.101 routing-mark=marca_saida_ole
+add check-gateway=ping distance=1 gateway=10.1.0.1 routing-mark=marca_saida_modulo_web
+add check-gateway=ping comment="Gateway Informac" distance=1 gateway=10.1.0.1
+add check-gateway=ping comment="Gateway Net" distance=2 gateway=189.34.32.1
+add check-gateway=ping distance=3 gateway=192.168.25.1
+
+===========================================================
+
+/ip firewall nat
+add action=masquerade chain=srcnat comment="Masquerades Internet" out-interface=PPPoE-informac
+add action=masquerade chain=srcnat out-interface=ether1-net
+add action=masquerade chain=srcnat out-interface=ether2-vivo
+add action=masquerade chain=srcnat out-interface=ether4-ole
+add action=masquerade chain=srcnat out-interface=PPPoE-oi
+
+
